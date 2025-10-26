@@ -1,0 +1,26 @@
+# .NET build output
+bin/
+obj/
+
+# Test results and coverage
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+coverage*.xml
+
+# IDE settings
+.vs/
+.vscode/
+.idea/
+
+# User-specific files
+*.user
+*.suo
+*.userprefs
+*.csproj.user
+
+# Tools
+BenchmarkDotNet.Artifacts/
+NCrunch*
+
