@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using FluentAssertions;
 using FluentValidation;
@@ -90,8 +91,10 @@ namespace RealEstate.Tests
             var okResult = result as OkObjectResult;
             okResult.Should().NotBeNull();
 
-            var value = okResult!.Value as dynamic;
-            ((string)value!.Token).Should().Be("FAKE.JWT.TOKEN");
+            var tokenProp = okResult!.Value?.GetType().GetProperty("Token");
+            tokenProp.Should().NotBeNull();
+            var tokenValue = tokenProp!.GetValue(okResult.Value) as string;
+            tokenValue.Should().Be("FAKE.JWT.TOKEN");
         }
 
         [Test]

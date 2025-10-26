@@ -156,17 +156,9 @@
               "target": "Package",
               "version": "[8.7.1, )"
             },
-            "Microsoft.Extensions.Caching.Memory": {
-              "target": "Package",
-              "version": "[8.0.1, )"
-            },
             "Microsoft.NET.Test.Sdk": {
               "target": "Package",
               "version": "[18.0.0, )"
-            },
-            "MongoDB.Driver": {
-              "target": "Package",
-              "version": "[2.25.0, )"
             },
             "Moq": {
               "target": "Package",
@@ -179,6 +171,11 @@
             "NUnit3TestAdapter": {
               "target": "Package",
               "version": "[4.3.1, )"
+            },
+            "coverlet.collector": {
+              "suppressParent": "All",
+              "target": "Package",
+              "version": "[6.0.2, )"
             }
           },
           "imports": [

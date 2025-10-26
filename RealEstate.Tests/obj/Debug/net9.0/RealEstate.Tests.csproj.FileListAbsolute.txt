@@ -10,8 +10,6 @@ D:\Apps\Real estate app\backend\RealEstate.Tests\bin\Debug\net9.0\RealEstate.API
 D:\Apps\Real estate app\backend\RealEstate.Tests\bin\Debug\net9.0\RealEstate.API.runtimeconfig.json
 D:\Apps\Real estate app\backend\RealEstate.Tests\bin\Debug\net9.0\appsettings.Development.json
 D:\Apps\Real estate app\backend\RealEstate.Tests\bin\Debug\net9.0\appsettings.json
-D:\Apps\Real estate app\backend\RealEstate.Tests\bin\Debug\net9.0\propertyCreate.json
-D:\Apps\Real estate app\backend\RealEstate.Tests\bin\Debug\net9.0\propertyUpdate.json
 D:\Apps\Real estate app\backend\RealEstate.Tests\bin\Debug\net9.0\RealEstate.API.staticwebassets.endpoints.json
 D:\Apps\Real estate app\backend\RealEstate.Tests\bin\Debug\net9.0\RealEstate.API.exe
 D:\Apps\Real estate app\backend\RealEstate.Tests\bin\Debug\net9.0\testhost.exe
@@ -143,3 +141,4 @@ D:\Apps\Real estate app\backend\RealEstate.Tests\obj\Debug\net9.0\refint\RealEst
 D:\Apps\Real estate app\backend\RealEstate.Tests\obj\Debug\net9.0\RealEstate.Tests.pdb
 D:\Apps\Real estate app\backend\RealEstate.Tests\obj\Debug\net9.0\RealEstate.Tests.genruntimeconfig.cache
 D:\Apps\Real estate app\backend\RealEstate.Tests\obj\Debug\net9.0\ref\RealEstate.Tests.dll
+D:\Apps\Real estate app\backend\RealEstate.Tests\bin\Debug\net9.0\CoverletSourceRootsMapping_RealEstate.Tests
