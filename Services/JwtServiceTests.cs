@@ -1,14 +1,13 @@
-using System;
 using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using NUnit.Framework;
-using RealEstate.API.Modules.Auth.Service;
+using RealEstate.API.Modules.Token.Service;
 using RealEstate.API.Modules.User.Model;
 
-namespace RealEstate.Tests
+namespace RealEstate.Tests.Services
 {
     [TestFixture]
     public class JwtServiceTests
@@ -19,17 +18,17 @@ namespace RealEstate.Tests
         [SetUp]
         public void Setup()
         {
-            // 🔹 Configuración en memoria consistente con JwtService
-            var settings = new Dictionary<string, string>
+            // ✅ Configuración en memoria simulando appsettings o variables de entorno
+            var settings = new Dictionary<string, string?>
             {
                 { "JwtSettings:SecretKey", "SuperSecretKeyForTesting123456789" },
                 { "JwtSettings:Issuer", "RealEstateAPI" },
                 { "JwtSettings:Audience", "RealEstateUsers" },
-                { "JwtSettings:ExpiryMinutes", "60" } // necesario para GenerateToken
+                { "JwtSettings:ExpiryMinutes", "60" }
             };
 
             _config = new ConfigurationBuilder()
-                .AddInMemoryCollection(settings)
+                .AddInMemoryCollection(settings!)
                 .Build();
 
             _jwtService = new JwtService(_config);
@@ -41,59 +40,62 @@ namespace RealEstate.Tests
             // Arrange
             var user = new UserModel
             {
-                Id = default!,
-                Password = "TestPassword123!",
-                Name = "testuser",
-                Email = "testuser@example.com",
-                Role = "user"
+                Id = "user123",
+                Name = "Test User",
+                Email = "test@example.com",
+                Role = "admin",
+                Password = "hashedpass"
             };
 
             // Act
             var token = _jwtService.GenerateToken(user);
 
             // Assert
-            token.Should().NotBeNullOrEmpty();
+            token.Should().NotBeNullOrEmpty("el token JWT no debe ser nulo ni vacío");
 
             var handler = new JwtSecurityTokenHandler();
             var jwt = handler.ReadJwtToken(token);
 
             jwt.Should().NotBeNull();
             jwt.Claims.Should().Contain(c => c.Type == ClaimTypes.Name && c.Value == user.Name);
+            jwt.Claims.Should().Contain(c => c.Type == ClaimTypes.Role && c.Value == user.Role);
         }
 
         [Test]
-        public void ValidateToken_ShouldReturnTrue_ForValidToken()
+        public void ValidateToken_ShouldReturnClaimsPrincipal_ForValidToken()
         {
             // Arrange
             var user = new UserModel
             {
-                Id = default!,
-                Password = "ValidPass123!",
-                Name = "validuser",
+                Id = "valid123",
+                Name = "Valid User",
                 Email = "valid@example.com",
-                Role = "admin"
+                Role = "user",
+                Password = "hashedpass"
             };
 
             var token = _jwtService.GenerateToken(user);
 
             // Act
-            var isValid = _jwtService.ValidateToken(token);
+            var principal = _jwtService.ValidateToken(token);
 
             // Assert
-            isValid.Should().BeTrue();
+            principal.Should().NotBeNull("el token debe ser válido y devolver un ClaimsPrincipal");
+            principal!.Identity!.IsAuthenticated.Should().BeTrue();
+            principal.FindFirst(ClaimTypes.Name)?.Value.Should().Be(user.Name);
         }
 
         [Test]
-        public void ValidateToken_ShouldReturnFalse_ForInvalidToken()
+        public void ValidateToken_ShouldReturnNull_ForInvalidToken()
         {
             // Arrange
             var invalidToken = "this.is.not.valid";
 
             // Act
-            var isValid = _jwtService.ValidateToken(invalidToken);
+            var principal = _jwtService.ValidateToken(invalidToken);
 
             // Assert
-            isValid.Should().BeFalse();
+            principal.Should().BeNull("el token inválido no debe producir un ClaimsPrincipal");
         }
     }
 }

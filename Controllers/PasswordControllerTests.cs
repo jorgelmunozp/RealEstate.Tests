@@ -6,36 +6,26 @@ using Moq;
 using NUnit.Framework;
 using RealEstate.API.Modules.Password.Controller;
 using RealEstate.API.Modules.Password.Dto;
-using MongoDB.Driver;
+using RealEstate.API.Modules.Password.Service;
 
-namespace RealEstate.Tests
+namespace RealEstate.Tests.Controllers
 {
     [TestFixture]
     public class PasswordControllerTests
     {
-        private Mock<IMongoDatabase> _db = null!;
-        private IConfiguration _config = null!;
+        private Mock<PasswordService> _passwordService = null!;
 
         [SetUp]
         public void Setup()
         {
-            _db = new Mock<IMongoDatabase>();
-
-            var inMemory = new System.Collections.Generic.Dictionary<string, string?>
-            {
-                { "MONGO_COLLECTION_USER", "Users" },
-                { "JwtSettings:SecretKey", "SuperSecretKeyForTesting123456789" },
-                { "JwtSettings:Issuer", "RealEstateAPI" },
-                { "JwtSettings:Audience", "UsuariosAPI" }
-            };
-            _config = new ConfigurationBuilder().AddInMemoryCollection(inMemory!).Build();
+            _passwordService = new Mock<PasswordService>(null!, null!);
         }
 
         [Test]
         public async Task Recover_ShouldReturnBadRequest_WhenEmailMissing()
         {
             // Arrange
-            var controller = new PasswordController(_db.Object, _config);
+            var controller = new PasswordController(_passwordService.Object);
 
             // Act
             var resultNull = await controller.Recover(null!);
@@ -50,7 +40,7 @@ namespace RealEstate.Tests
         public async Task Update_ShouldReturnBadRequest_WhenTokenOrPasswordMissing()
         {
             // Arrange
-            var controller = new PasswordController(_db.Object, _config);
+            var controller = new PasswordController(_passwordService.Object);
 
             // Act
             var noDto = await controller.Update(null!);
@@ -64,4 +54,3 @@ namespace RealEstate.Tests
         }
     }
 }
-
