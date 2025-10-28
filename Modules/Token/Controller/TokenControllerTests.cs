@@ -13,7 +13,7 @@ namespace RealEstate.API.Modules.Token.Controller
     [Route("api/[controller]")]
     public class TokenController : ControllerBase
     {
-        private readonly IJwtService _jwtService;
+        private readonly IJwtService _jwtService = null!;
 
         public TokenController(IJwtService jwtService)
         {

@@ -78,29 +78,27 @@ namespace RealEstate.Tests.Modules.Property.Service
             _sut = new PropertyService(_db.Object,_validator.Object,_cfg,_cache,_ownerSvc.Object,_imgSvc.Object,_traceSvc.Object);
         }
 
-        // ---------- Helpers Mongo ----------
-        static Mock<IFindFluent<T,T>> FF<T>(T? one, IEnumerable<T>? many=null) where T:class
+        // ---------- Helpers (mockear Find* sin tocar métodos de extensión) ----------
+        static Mock<IAsyncCursor<T>> Cursor<T>(IReadOnlyList<T> items) where T:class
         {
-            var ff=new Mock<IFindFluent<T,T>>();
-            var list = many?.ToList() ?? (one!=null? new List<T>{one}: new List<T>());
-            ff.Setup(x=>x.FirstOrDefaultAsync(It.IsAny<CancellationToken>())).ReturnsAsync(one);
-            ff.Setup(x=>x.ToListAsync(It.IsAny<CancellationToken>())).ReturnsAsync(list);
-            ff.Setup(x=>x.Skip(It.IsAny<int>())).Returns(ff.Object);
-            ff.Setup(x=>x.Limit(It.IsAny<int>())).Returns(ff.Object);
-            return ff;
+            var cursor = new Mock<IAsyncCursor<T>>();
+            cursor.SetupSequence(c => c.MoveNext(It.IsAny<CancellationToken>())).Returns(items.Count>0).Returns(false);
+            cursor.SetupSequence(c => c.MoveNextAsync(It.IsAny<CancellationToken>())).ReturnsAsync(items.Count>0).ReturnsAsync(false);
+            cursor.SetupGet(c => c.Current).Returns(items);
+            return cursor;
+        }
+        static void SetupFind<T>(Mock<IMongoCollection<T>> col, IReadOnlyList<T> items) where T:class
+        {
+            var cur = Cursor(items);
+            col.Setup(c => c.FindAsync(It.IsAny<FilterDefinition<T>>(), It.IsAny<FindOptions<T,T>>(), It.IsAny<CancellationToken>()))
+               .ReturnsAsync(cur.Object);
+            col.Setup(c => c.FindSync(It.IsAny<FilterDefinition<T>>(), It.IsAny<FindOptions<T,T>>(), It.IsAny<CancellationToken>()))
+               .Returns(cur.Object);
         }
         static void SetupFindOne<T>(Mock<IMongoCollection<T>> col, T? one) where T:class
-        {
-            var ff=FF(one);
-            col.Setup(c=>c.Find(It.IsAny<FilterDefinition<T>>(), It.IsAny<FindOptions>())).Returns(ff.Object);
-            col.Setup(c=>c.Find(It.IsAny<Expression<Func<T,bool>>>(), It.IsAny<FindOptions>())).Returns(ff.Object);
-        }
+            => SetupFind(col, one!=null ? new List<T>{one} : new List<T>());
         static void SetupFindMany<T>(Mock<IMongoCollection<T>> col, IEnumerable<T> many) where T:class
-        {
-            var ff=FF<T>(many.FirstOrDefault(), many);
-            col.Setup(c=>c.Find(It.IsAny<FilterDefinition<T>>(), It.IsAny<FindOptions>())).Returns(ff.Object);
-            col.Setup(c=>c.Find(It.IsAny<Expression<Func<T,bool>>>(), It.IsAny<FindOptions>())).Returns(ff.Object);
-        }
+            => SetupFind(col, many.ToList());
         static DeleteResult Del(long n)
         {
             var m=new Mock<DeleteResult>();
@@ -156,14 +154,10 @@ namespace RealEstate.Tests.Modules.Property.Service
             };
 
             _validator.Setup(v=>v.ValidateAsync(It.IsAny<PropertyDto>(),It.IsAny<CancellationToken>())).ReturnsAsync(new ValidationResult());
-
             _ownerSvc.Setup(s => s.CreateAsync(It.IsAny<OwnerDto>()))
                      .ReturnsAsync(ServiceResultWrapper<OwnerDto>.Created(new OwnerDto{ IdOwner="o777", Name="Bob" },"ok"));
-
             _imgSvc.Setup(s=>s.CreateAsync(It.IsAny<PropertyImageDto>()))
                    .ReturnsAsync(ServiceResultWrapper<PropertyImageDto>.Created(null,"ok"));
-
-            // ⬇⬇ IMPORTANTE: la interfaz devuelve List<string>
             _traceSvc.Setup(s=>s.CreateAsync(It.IsAny<List<PropertyTraceDto>>()))
                      .Returns(Task.FromResult(ServiceResultWrapper<List<string>>.Created(new List<string>(), "ok")));
 
