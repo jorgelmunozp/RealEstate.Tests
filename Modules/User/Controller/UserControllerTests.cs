@@ -38,10 +38,8 @@ namespace RealEstate.Tests.Modules.User.Controller
             };
         }
 
-        // ===========================================================
-        // GET: api/user
-        // ===========================================================
-        [Test]
+              // GET: api/user
+              [Test]
         public async Task GetAll_ShouldReturnOkResult_WhenServiceReturnsSuccess()
         {
             var userDtos = new List<UserDto> { new UserDto { Email = "user@example.com", Name = "John" } };
@@ -56,10 +54,8 @@ namespace RealEstate.Tests.Modules.User.Controller
             okResult!.Value.Should().BeEquivalentTo(userDtos);
         }
 
-        // ===========================================================
-        // POST: api/user
-        // ===========================================================
-        [Test]
+              // POST: api/user
+              [Test]
         public async Task Create_ShouldReturnBadRequest_WhenDtoIsNull()
         {
             var result = await _controller.Create(null!); // suprime CS8625
@@ -70,10 +66,8 @@ namespace RealEstate.Tests.Modules.User.Controller
             badRequestResult!.Value.Should().BeEquivalentTo(new { Success = false, Message = "El cuerpo de la solicitud no puede ser nulo." });
         }
 
-        // ===========================================================
-        // PUT: api/user/{email}
-        // ===========================================================
-        [Test]
+              // PUT: api/user/{email}
+              [Test]
         public async Task Update_ShouldReturnOkResult_WhenUserIsUpdated()
         {
             var userDto = new UserDto { Email = "user@example.com", Name = "Updated Name" };
@@ -100,10 +94,8 @@ namespace RealEstate.Tests.Modules.User.Controller
             result.Should().BeOfType<ForbidResult>();
         }
 
-        // ===========================================================
-        // DELETE: api/user/{email}
-        // ===========================================================
-        [Test]
+              // DELETE: api/user/{email}
+              [Test]
         public async Task Delete_ShouldReturnNotFound_WhenUserDoesNotExist()
         {
             var errorResult = new ServiceResultWrapper<bool>(false, 404, false, "User not found");
