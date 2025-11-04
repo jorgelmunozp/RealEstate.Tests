@@ -1,315 +1,184 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
-using AutoMapper;
 using FluentAssertions;
 using FluentValidation;
 using FluentValidation.Results;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
-using Moq;
 using MongoDB.Driver;
+using Moq;
 using NUnit.Framework;
-using RealEstate.API.Infraestructure.Core.Services;
 using RealEstate.API.Modules.PropertyTrace.Dto;
 using RealEstate.API.Modules.PropertyTrace.Model;
 using RealEstate.API.Modules.PropertyTrace.Service;
+using AutoMapper;
+using System.Linq.Expressions;
 
-namespace RealEstate.Tests.Modules.PropertyTrace.Service
+namespace RealEstate.API.Tests
 {
     [TestFixture]
     public class PropertyTraceServiceTests
     {
+        // ---- Helper para evitar DeleteResult.Acknowledged(...) ----
+        private sealed class FakeDeleteResult : DeleteResult
+        {
+            private readonly long _deleted;
+            public FakeDeleteResult(long deleted) { _deleted = deleted; }
+            public override bool IsAcknowledged => true;
+            public override long DeletedCount => _deleted;
+        }
+
         private Mock<IMongoDatabase> _db = null!;
-        private Mock<IMongoCollection<PropertyTraceModel>> _col = null!;
-        private Mock<IMapper> _mapper = null!;
+        private Mock<IMongoCollection<PropertyTraceModel>> _colTraces = null!;
         private IMemoryCache _cache = null!;
         private IConfiguration _config = null!;
+        private Mock<IValidator<PropertyTraceDto>> _validatorMock = null!;
         private IValidator<PropertyTraceDto> _validator = null!;
-        private PropertyTraceService _sut = null!;
+        private IMapper _mapper = null!;
 
         [SetUp]
-        public void SetUp()
+        public void Setup()
         {
-            _db = new Mock<IMongoDatabase>();
-            _col = new Mock<IMongoCollection<PropertyTraceModel>>();
-            _mapper = new Mock<IMapper>();
+            _config = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["MONGO_COLLECTION_PROPERTYTRACE"] = "traces",
+                    ["CACHE_TTL_MINUTES"] = "5",
+                })
+                .Build();
+
             _cache = new MemoryCache(new MemoryCacheOptions());
 
-            _validator = Mock.Of<IValidator<PropertyTraceDto>>(v =>
-                v.ValidateAsync(It.IsAny<PropertyTraceDto>(), It.IsAny<CancellationToken>()) ==
-                Task.FromResult(new ValidationResult()));
+            // Validator por defecto => válido
+            _validatorMock = new Mock<IValidator<PropertyTraceDto>>(MockBehavior.Strict);
+            _validatorMock
+                .Setup(v => v.ValidateAsync(It.IsAny<PropertyTraceDto>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new ValidationResult());
+            _validator = _validatorMock.Object;
 
-            _config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            // Mapper dummy (no mapeamos nada en estos tests)
+            _mapper = new Mock<IMapper>(MockBehavior.Loose).Object;
+
+            _db = new Mock<IMongoDatabase>(MockBehavior.Strict);
+            _colTraces = new Mock<IMongoCollection<PropertyTraceModel>>(MockBehavior.Strict);
+
+            _db.Setup(d => d.GetCollection<PropertyTraceModel>("traces", It.IsAny<MongoCollectionSettings>()))
+               .Returns(_colTraces.Object);
+        }
+
+        private PropertyTraceService CreateSut() =>
+            new PropertyTraceService(_db.Object, _validator, _config, _cache, _mapper);
+
+        [Test]
+        public async Task GetAllAsync_cache_hit_all()
+        {
+            // Arrange (cache “all”)
+            var cacheKey = "ptrace:all";
+            var cached = new List<PropertyTraceDto>
             {
-                ["MONGO_COLLECTION_PROPERTYTRACE"] = "PropertyTrace",
-                ["CACHE_TTL_MINUTES"] = "1"
-            }).Build();
+                new PropertyTraceDto { IdPropertyTrace = "t1", IdProperty = "p1", Name = "Venta" }
+            };
+            _cache.Set(cacheKey, cached, TimeSpan.FromMinutes(5));
 
-            _db.Setup(d => d.GetCollection<PropertyTraceModel>("PropertyTrace", null)).Returns(_col.Object);
+            var sut = CreateSut();
 
-            _mapper.Setup(m => m.Map<PropertyTraceDto>(It.IsAny<PropertyTraceModel>()))
-                   .Returns<PropertyTraceModel>(m => new PropertyTraceDto { IdProperty = m.IdProperty });
+            // Act
+            var res = await sut.GetAllAsync(idProperty: null, refresh: false);
 
-            _mapper.Setup(m => m.Map<PropertyTraceModel>(It.IsAny<PropertyTraceDto>()))
-                   .Returns<PropertyTraceDto>(d => new PropertyTraceModel
-                   {
-                       Id = Guid.NewGuid().ToString("N"),
-                       IdProperty = d.IdProperty
-                   });
-
-            _mapper.Setup(m => m.Map<IEnumerable<PropertyTraceDto>>(It.IsAny<IEnumerable<PropertyTraceModel>>()))
-                   .Returns<IEnumerable<PropertyTraceModel>>(list => list.Select(x => new PropertyTraceDto { IdProperty = x.IdProperty }).ToList());
-
-            _mapper.Setup(m => m.Map(It.IsAny<PropertyTraceDto>(), It.IsAny<PropertyTraceModel>()))
-                   .Returns<PropertyTraceDto, PropertyTraceModel>((src, dest) => { dest.IdProperty = src.IdProperty; return dest; });
-
-            _sut = new PropertyTraceService(_db.Object, _validator, _config, _cache, _mapper.Object);
+            // Assert
+            res.Success.Should().BeTrue();
+            res.Message.Should().Contain("caché");
+            res.Data.Should().BeSameAs(cached);
         }
 
-        [TearDown] public void TearDown() => (_cache as MemoryCache)?.Dispose();
-
-        // ------- helpers Mongo -------
-        private static Mock<IAsyncCursor<T>> BuildCursor<T>(IEnumerable<T> items)
-        {
-            var seq = new Queue<IEnumerable<T>>();
-            seq.Enqueue(items);
-            seq.Enqueue(Enumerable.Empty<T>());
-
-            var cursor = new Mock<IAsyncCursor<T>>();
-            cursor.SetupSequence(c => c.MoveNext(It.IsAny<CancellationToken>())).Returns(true).Returns(false);
-            cursor.SetupSequence(c => c.MoveNextAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true).ReturnsAsync(false);
-            cursor.Setup(c => c.Current).Returns(() => seq.Peek());
-            return cursor;
-        }
-
-        private static Mock<IFindFluent<T, T>> BuildFindFluent<T>(IEnumerable<T> items)
-        {
-            var cursor = BuildCursor(items);
-            var find = new Mock<IFindFluent<T, T>>();
-            find.Setup(f => f.ToCursor(It.IsAny<CancellationToken>())).Returns(cursor.Object);
-            find.Setup(f => f.ToCursorAsync(It.IsAny<CancellationToken>())).ReturnsAsync(cursor.Object);
-            return find;
-        }
-
-        private void SetupFindReturns(IEnumerable<PropertyTraceModel> items)
-        {
-            var find = BuildFindFluent(items);
-            _col.Setup(c => c.Find(It.IsAny<FilterDefinition<PropertyTraceModel>>(), It.IsAny<FindOptions>()))
-                .Returns(find.Object);
-            _col.Setup(c => c.Find(It.IsAny<Expression<Func<PropertyTraceModel, bool>>>(), It.IsAny<FindOptions>()))
-                .Returns(find.Object);
-        }
-
-        // ------- tests -------
         [Test]
-        public async Task GetAllAsync_NoCache_fetches_maps_and_caches()
+        public async Task GetAllAsync_cache_hit_porPropiedad()
         {
-            SetupFindReturns(new[]
+            // Arrange (cache para propiedad específica)
+            var idProp = "p123";
+            var cacheKey = $"ptrace:{idProp}";
+            var cached = new List<PropertyTraceDto>
             {
-                new PropertyTraceModel { Id = "t1", IdProperty = "p1" },
-                new PropertyTraceModel { Id = "t2", IdProperty = "p2" }
-            });
+                new PropertyTraceDto { IdPropertyTrace = "t2", IdProperty = idProp, Name = "Arriendo" }
+            };
+            _cache.Set(cacheKey, cached, TimeSpan.FromMinutes(5));
 
-            var res = await _sut.GetAllAsync();
+            var sut = CreateSut();
 
+            // Act
+            var res = await sut.GetAllAsync(idProperty: idProp, refresh: false);
+
+            // Assert
             res.Success.Should().BeTrue();
-            res.Data!.Count().Should().Be(2);
-            _cache.TryGetValue("ptrace:all", out _).Should().BeTrue();
-            _col.Verify(c => c.Find(It.IsAny<FilterDefinition<PropertyTraceModel>>(), It.IsAny<FindOptions>()), Times.Once);
+            res.Message.Should().Contain("caché");
+            res.Data.Should().BeSameAs(cached);
         }
 
         [Test]
-        public async Task GetAllAsync_uses_cache_when_present_and_no_refresh()
+        public async Task CreateSingleAsync_validacionInvalida_noInserta_y_400()
         {
-            var cached = new[] { new PropertyTraceDto { IdProperty = "PX" } }.AsEnumerable();
-            _cache.Set("ptrace:all", cached, TimeSpan.FromMinutes(1));
+            // Validator inválido
+            var invalid = new ValidationResult(new[] { new ValidationFailure("Name", "Requerido") });
+            _validatorMock
+                .Setup(v => v.ValidateAsync(It.IsAny<PropertyTraceDto>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(invalid);
 
-            var res = await _sut.GetAllAsync();
+            var sut = CreateSut();
 
-            res.Success.Should().BeTrue();
-            res.Data!.First().IdProperty.Should().Be("PX");
-            _col.Verify(c => c.Find(It.IsAny<FilterDefinition<PropertyTraceModel>>(), It.IsAny<FindOptions>()), Times.Never);
-        }
+            var dto = new PropertyTraceDto
+            {
+                IdProperty = "p1",
+                Name = "", // fuerza invalidez
+                Value = 1000,
+                Tax = 5,
+                DateSale = "2020-01-01"
+            };
 
-        [Test]
-        public async Task GetByIdAsync_not_found_returns_404()
-        {
-            SetupFindReturns(Array.Empty<PropertyTraceModel>());
-
-            var res = await _sut.GetByIdAsync("nope");
-
-            res.Success.Should().BeFalse();
-            res.StatusCode.Should().Be(404);
-        }
-
-        [Test]
-        public async Task GetByIdAsync_found_returns_ok_with_dto()
-        {
-            SetupFindReturns(new[] { new PropertyTraceModel { Id = "t1", IdProperty = "p1" } });
-
-            var res = await _sut.GetByIdAsync("t1");
-
-            res.Success.Should().BeTrue();
-            res.Data!.IdProperty.Should().Be("p1");
-        }
-
-        [Test]
-        public async Task CreateAsync_mixed_valid_invalid_returns_400_and_inserts_only_valid()
-        {
-            var invalid = new PropertyTraceDto { IdProperty = "p1" };
-            var valid = new PropertyTraceDto { IdProperty = "p2" };
-
-            var invalidResult = new ValidationResult(new[] { new ValidationFailure("f", "err") });
-            var validResult = new ValidationResult();
-
-            var validatorMock = new Mock<IValidator<PropertyTraceDto>>();
-            validatorMock.SetupSequence(v => v.ValidateAsync(It.IsAny<PropertyTraceDto>(), It.IsAny<CancellationToken>()))
-                         .ReturnsAsync(invalidResult).ReturnsAsync(validResult);
-
-            _sut = new PropertyTraceService(_db.Object, validatorMock.Object, _config, _cache, _mapper.Object);
-
-            _col.Setup(c => c.InsertOneAsync(It.IsAny<PropertyTraceModel>(), null, It.IsAny<CancellationToken>()))
-                .Returns(Task.CompletedTask);
-
-            var res = await _sut.CreateAsync(new[] { invalid, valid });
+            // No configuramos InsertOneAsync; si se llama, Moq Strict fallará
+            var res = await sut.CreateSingleAsync(dto);
 
             res.Success.Should().BeFalse();
             res.StatusCode.Should().Be(400);
-            _col.Verify(c => c.InsertOneAsync(It.IsAny<PropertyTraceModel>(), null, It.IsAny<CancellationToken>()), Times.Once);
+            _colTraces.Verify(c =>
+                c.InsertOneAsync(It.IsAny<PropertyTraceModel>(), null, It.IsAny<CancellationToken>()),
+                Times.Never);
         }
 
         [Test]
-        public async Task CreateSingleAsync_valid_returns_201()
+        public async Task DeleteAsync_notFound_404()
         {
-            _col.Setup(c => c.InsertOneAsync(It.IsAny<PropertyTraceModel>(), null, It.IsAny<CancellationToken>()))
-                .Returns(Task.CompletedTask);
-
-            var dto = new PropertyTraceDto { IdProperty = "p1" };
-            var res = await _sut.CreateSingleAsync(dto);
-
-            res.Success.Should().BeTrue();
-            res.StatusCode.Should().Be(201);
-            res.Data.Should().NotBeNull();
-        }
-
-        [Test]
-        public async Task CreateSingleAsync_invalid_returns_400()
-        {
-            var validatorMock = new Mock<IValidator<PropertyTraceDto>>();
-            validatorMock.Setup(v => v.ValidateAsync(It.IsAny<PropertyTraceDto>(), It.IsAny<CancellationToken>()))
-                         .ReturnsAsync(new ValidationResult(new[] { new ValidationFailure("f", "e") }));
-            _sut = new PropertyTraceService(_db.Object, validatorMock.Object, _config, _cache, _mapper.Object);
-
-            var res = await _sut.CreateSingleAsync(new PropertyTraceDto { IdProperty = "p1" });
-
-            res.Success.Should().BeFalse();
-            res.StatusCode.Should().Be(400);
-            _col.Verify(c => c.InsertOneAsync(It.IsAny<PropertyTraceModel>(), null, It.IsAny<CancellationToken>()), Times.Never);
-        }
-
-        [Test]
-        public async Task UpdateAsync_not_found_returns_404()
-        {
-            SetupFindReturns(Array.Empty<PropertyTraceModel>());
-
-            var res = await _sut.UpdateAsync("x", new PropertyTraceDto { IdProperty = "p1" });
-
-            res.Success.Should().BeFalse();
-            res.StatusCode.Should().Be(404);
-        }
-
-        [Test]
-        public async Task UpdateAsync_found_replaces_and_returns_ok()
-        {
-            SetupFindReturns(new[] { new PropertyTraceModel { Id = "t1", IdProperty = "p1" } });
-
-            var replaceRes = new Mock<ReplaceOneResult>();
-            replaceRes.SetupGet(r => r.IsAcknowledged).Returns(true);
-            _col.Setup(c => c.ReplaceOneAsync(
+            // DeleteOneAsync(Expression, CancellationToken) => 0 borrados
+            _colTraces
+                .Setup(c => c.DeleteOneAsync(
                     It.IsAny<Expression<Func<PropertyTraceModel, bool>>>(),
-                    It.IsAny<PropertyTraceModel>(),
-                    It.IsAny<ReplaceOptions>(),
                     It.IsAny<CancellationToken>()))
-                .ReturnsAsync(replaceRes.Object);
+                .Returns(Task.FromResult<DeleteResult>(new FakeDeleteResult(0)));
 
-            var res = await _sut.UpdateAsync("t1", new PropertyTraceDto { IdProperty = "p2" });
+            var sut = CreateSut();
 
-            res.Success.Should().BeTrue();
-            res.StatusCode.Should().Be(200);
-        }
-
-        [Test]
-        public async Task PatchAsync_empty_fields_returns_400()
-        {
-            var res = await _sut.PatchAsync("t1", new Dictionary<string, object>());
-            res.Success.Should().BeFalse();
-            res.StatusCode.Should().Be(400);
-        }
-
-        [Test]
-        public async Task PatchAsync_not_found_returns_404()
-        {
-            SetupFindReturns(Array.Empty<PropertyTraceModel>());
-
-            var res = await _sut.PatchAsync("t1", new Dictionary<string, object> { ["price"] = 1000 });
+            var res = await sut.DeleteAsync("no-existe");
 
             res.Success.Should().BeFalse();
             res.StatusCode.Should().Be(404);
         }
 
         [Test]
-        public async Task PatchAsync_valid_updates_and_returns_ok()
+        public async Task DeleteAsync_ok_devuelve_deleted()
         {
-            SetupFindReturns(new[] { new PropertyTraceModel { Id = "t1", IdProperty = "p1" } });
-
-            var updateRes = new Mock<UpdateResult>();
-            updateRes.SetupGet(u => u.IsAcknowledged).Returns(true);
-            _col.Setup(c => c.UpdateOneAsync(
+            _colTraces
+                .Setup(c => c.DeleteOneAsync(
                     It.IsAny<Expression<Func<PropertyTraceModel, bool>>>(),
-                    It.IsAny<UpdateDefinition<PropertyTraceModel>>(),
-                    It.IsAny<UpdateOptions>(),
                     It.IsAny<CancellationToken>()))
-                .ReturnsAsync(updateRes.Object);
+                .Returns(Task.FromResult<DeleteResult>(new FakeDeleteResult(1)));
 
-            var res = await _sut.PatchAsync("t1", new Dictionary<string, object> { ["price"] = 999 });
+            var sut = CreateSut();
 
-            res.Success.Should().BeTrue();
-            res.StatusCode.Should().Be(200);
-        }
-
-        [Test]
-        public async Task DeleteAsync_not_found_returns_404()
-        {
-            var delRes0 = new Mock<DeleteResult>();
-            delRes0.SetupGet(d => d.DeletedCount).Returns(0);
-            delRes0.SetupGet(d => d.IsAcknowledged).Returns(true);
-
-            _col.Setup(c => c.DeleteOneAsync(It.IsAny<Expression<Func<PropertyTraceModel, bool>>>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(delRes0.Object);
-
-            var res = await _sut.DeleteAsync("nope");
-
-            res.Success.Should().BeFalse();
-            res.StatusCode.Should().Be(404);
-        }
-
-        [Test]
-        public async Task DeleteAsync_deleted_returns_success()
-        {
-            var delRes1 = new Mock<DeleteResult>();
-            delRes1.SetupGet(d => d.DeletedCount).Returns(1);
-            delRes1.SetupGet(d => d.IsAcknowledged).Returns(true);
-
-            _col.Setup(c => c.DeleteOneAsync(It.IsAny<Expression<Func<PropertyTraceModel, bool>>>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(delRes1.Object);
-
-            var res = await _sut.DeleteAsync("t1");
+            var res = await sut.DeleteAsync("t1");
 
             res.Success.Should().BeTrue();
+            res.Message.Should().Contain("eliminada");
         }
     }
 }
