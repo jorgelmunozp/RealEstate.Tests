@@ -19,7 +19,7 @@ using RealEstate.API.Modules.Owner.Model;
 using RealEstate.API.Modules.PropertyImage.Model;
 using RealEstate.API.Modules.PropertyTrace.Model;
 
-namespace RealEstate.API.Tests
+namespace RealEstate.API.Tests.Property.Service
 {
     [TestFixture]
     public class PropertyServiceTest
